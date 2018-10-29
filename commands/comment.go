@@ -4,7 +4,6 @@ import (
   "fmt"
   "os"
   "strconv"
-  "strings"
   "time"
 
   "github.com/github/hub/git"
@@ -236,33 +235,41 @@ func createComment(cmd *Command, args *Args) {
 
   gh := github.NewClient(project.Host)
 
-  var title string
-  var body string
-  var editor *github.Editor
+	messageBuilder := &github.MessageBuilder{
+		Filename: "COMMENT",
+		Title:    "comment",
+	}
+
+	messageBuilder.AddCommentedSection(fmt.Sprintf(`Creating a comment for %s
+
+Write a message for this comment.`, project))
 
   if cmd.FlagPassed("message") {
-    title, body = readMsg(flagCommentMessage)
+    messageBuilder.Message = flagCommentMessage
+		messageBuilder.Edit = flagCommentEdit
   } else if cmd.FlagPassed("file") {
-    title, body, editor, err = readMsgFromFile(flagCommentFile, flagCommentEdit, "COMMENT", "comment")
-    utils.Check(err)
+    messageBuilder.Message, err = msgFromFile(flagCommentFile)
+		utils.Check(err)
+		messageBuilder.Edit = flagCommentEdit
   } else {
-    cs := git.CommentChar()
-    message := strings.Replace(fmt.Sprintf(`
-# Creating a comment for %s
-#
-# Write a message for this comment.
-`, project), "#", cs, -1)
+    messageBuilder.Edit = true
 
-    editor, err := github.NewEditor("COMMENT", "comment", message)
-    utils.Check(err)
+		workdir, _ := git.WorkdirName()
+		if workdir != "" {
+			template, err := github.ReadTemplate(github.IssueTemplate, workdir)
+			utils.Check(err)
+			if template != "" {
+				messageBuilder.Message = template
+			}
+		}
 
-    title, body, err = editor.EditTitleAndBody()
-    utils.Check(err)
-  }
+	}
 
-  if editor != nil {
-    defer editor.DeleteFile()
-  }
+	title, body, err := messageBuilder.Extract()
+  utils.Check(err)
+  
+  println(title)
+  println(body)
 
   if title == "" {
     utils.Check(fmt.Errorf("Aborting creation due to empty comment title"))
